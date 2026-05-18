@@ -1,0 +1,53 @@
+{
+    "folders": [
+        {
+            "name": "backend",
+            "path": "backend",
+        },
+        {
+            "name": "frontend",
+            "path": "frontend",
+        },
+        {
+            "name": "root",
+            "path": ".",
+        },
+    ],
+    "settings": {
+        "files.exclude": {
+            "backend": true,
+            "frontend": true,
+            "blog.log": true,
+            "**/.git": true,
+            "**/.DS_Store": true,
+            "**/Thumbs.db": true,
+            "**/dist": true,
+            "**/dist_aux": true,
+            ".yarn": true,
+            "node_modules": true,
+            ".next": true,
+            "next-env.d.ts": true,
+            "*.tsbuildinfo": true,
+            "designs": true,
+            ".tsbuildinfo": true,
+        },
+        "search.exclude": {
+            "**/node_modules": true,
+            "**/bower_components": true,
+            "**/*.code-search": true,
+            "**/.next/**/*": true,
+        },
+        "explorer.fileNesting.enabled": true,
+        "explorer.fileNesting.patterns": {
+            "*.js": "${capture}.js.map, ${capture}.min.js, ${capture}.d.ts",
+            "package.json": ".npmignore",
+            "tsconfig.json": "tsconfig.esm.json, tsconfig.cjs.json, tsconfig.test.json",
+            "tsconfig.base.json": "tsconfig.base.*.json",
+            ".yarnrc.yml": "yarn.lock",
+            ".eslintrc*": ".eslintignore",
+            ".prettierrc*": ".prettierignore, .editorconfig",
+            ".gitignore": ".gitattributes",
+            "README.md": "LICENSE.md",
+        },
+    },
+}

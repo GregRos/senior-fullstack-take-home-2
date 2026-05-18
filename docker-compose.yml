@@ -1,0 +1,19 @@
+services:
+  app:
+    build:
+      context: .
+      target: app
+      dockerfile: Dockerfile
+      args:
+        VITE_SERVER_URL: ${VITE_SERVER_URL:-}
+    environment:
+      TY_HOST: 0.0.0.0
+      TY_PORT: 8888
+      TY_DB_PATH: /app/backend/.state/db.sqlite
+      TY_CORS_ORIGINS: ${TY_CORS_ORIGINS:-http://localhost:8888,http://127.0.0.1:8888}
+      TY_KEYS_FILE: ${TY_KEYS_FILE:-/app/backend/.api-keys.yaml}
+    ports:
+      - "${APP_PORT:-8888}:8888"
+    volumes:
+      - ./backend/.state:/app/backend/.state
+      - ./.api-keys.yaml:/app/backend/.api-keys.yaml:ro

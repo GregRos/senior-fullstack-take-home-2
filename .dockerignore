@@ -1,0 +1,17 @@
+.git
+.gitignore
+.vscode
+.idea
+
+frontend/node_modules
+frontend/dist
+frontend/.yarn/install-state.gz
+
+backend/.venv
+backend/.pytest_cache
+backend/.mypy_cache
+backend/.ruff_cache
+backend/.state
+
+**/__pycache__
+**/*.pyc

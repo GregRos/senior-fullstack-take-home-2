@@ -1,257 +1,149 @@
-# Take-home assignment: AI-assisted Language Journaling
+# Solution
 
-## Goal
+## Running
+An OpenAI API key is required. It should go in  `.api-keys.yaml` at the repo root. See `.api-keys.example.yaml`.
 
-Build a small web application that helps a user practice a foreign language through journaling.
+```bash
+docker build . --target backend-test
+docker compose up --build -d --wait
+curl http://localhost:8888/api/login # there is no real login
+```
 
-The product should let users write journal entries in a language they are learning, receive AI-assisted feedback, review past entries, and (optionally) understand how their mistakes evolve over time.
+I used agents a lot when writing this code. You can find `*.prompt.md` files scattered across the repo which show some of my instructions. Not everything is in there, but a lot of it is. They can also serve a bit like documentation and can demonstrate my intent.
 
-This assignment is split into two stages:
+## Tech choices
 
-- **Stage 1 (Core)**: Writing + AI feedback + basic review
-- **Stage 2 (Extension)**: Mistake tracking and improvement insights
+```yaml
+backend:
+    language: python # Common for agentic backends
+    web: unicorn + FastAPI # Common HTTP server and simple but idiomatic API bindings
+    type safety: pydantic # Strong integration with the rest of the backend stack
+    llm client: pydantic_ai # Lets me avoid annoying boilerplate
+    llm: potentially flexible but tested with openai # I had an API key lying around
+    orm: SQLModel # Good integration with the rest of the stack
+    db: sqlite # Simplifies deployment
+frontend:
+    language: typescript # It's what you use
+    ui framework: react # What I have most experience with
+    type safety: zod # Strong integration with TypeScript, very ergonomic API, validation is important when running tons of agents
+    router: react-router # It's a router... for React
+    build tool: vite # What I use for projects that don't need SSR
+    styling: scss # I just really like it.
+    editor: Tiptap + ProseMirror # The overall editor surface is custom, but this is used for decorations, interior caret tracking, etc.
+    tooltips: floating-ui # It does tooltips
+llm development tools:
+    harness: vscode/github copilot # I was using Cursor but credits are getting expensive
+    model: gpt-5.4 # It works well
+```
 
-You should fully complete Stage 1. Stage 2 is optional but encouraged.
+## Design
+I really wanted to link corrections to the user's text in an intuitive way. So I decided to highlight mistakes in the user's text and not present them in some adjacent component. This means every mistake must be anchored to part of the user's text.
 
-We care more about clarity and correctness than feature completeness.
+I chose not to do stage 2. However, I did choose to provide groundwork for that stage. Mistakes are categorized under types, are recorded to the database, and so on.
 
----
+I think it's better to have a product that people might want to use and no visible usage statistics rather than a product no one wants to use and does have them.
 
-## Product concept
+### Some notes on history tracking and visualization
+For stage 2, I would've gone for:
 
-The application should support this basic idea:
+- A calendar heatmap showing how much the user has used the app (mistakes corrected/paragraphs written)
+- Total count of mistakes fix using the app.
+- A graph showing most common mistakes made over time, based on mistake category, probably using chartjs or something similar.
 
-> I want to write in a foreign language regularly, get useful corrections, and understand what mistakes I make repeatedly.
+### Avoiding real-time correction
+I didn't go for real-time highlighting either, though. This is for a few reasons:
 
-The writing experience should minimize friction. Users should be able to express themselves without constantly interrupting their flow to look up every word or grammar rule.
+1. The student might be struggling to write a complete sentence. It would be distracting to have mistakes shoved in their face.
+2. The student's text might not be intelligble without context, so corrections might be completely off.
+3. Even fast LLMs respond pretty slowly. Trying to correct the user's text as it's being written would create pretty substantial delays anyway.
+4. Due to the previous reasons, inference responses would need to be invalidated frequently no matter what, which means wasting money.
 
----
+I also really wanted to avoid specific Hard Problems, such as trying to reconcile mistakes from N seconds ago to the user's text as it is now.
 
-## Stage 1 — Core functionality
+### Paragraph-based system
+Instead, I've gone for a hybrid system. The user's journal entry is divided into paragraphs that can each be editted and checked separately and in parallel. While the user is editting, no inference requests for that paragraph are sent and no highlights are shown.
 
-### Journal writing flow
+The app only fetches correctiosn when the user is finished with that paragraph, and they appear within a short time. Hovering over a mistake shows a tooltip that explains the mistake, how it can be fixed, what its category is, and provides a button to fix it.
 
-At minimum, the user should be able to:
+This creates a natural loop of:
 
-1. Create a new journal entry in a foreign language
-2. Submit the entry for AI feedback
-3. See corrections or suggestions
-4. Save the entry and feedback
-5. Review previous entries later
+```
+write something -> move on while it's being checked -> receive corrections -> learn from mistakes
+```
 
-You may assume a single user.
+### Handling overlapping mistakes
+Students can construct clauses with multiple mistakes that break several rules but apply to the same text.
 
----
+Let's say we have the text:
 
-## Open-ended product decisions
+> Steve shop goed.
 
-Several important product decisions are intentionally left open.
+This has three issues:
 
-You may choose:
+1. "goed" should be "went" which is a pretty common mistake.
+2. The word order is wrong, again a common mistake for speakers of SOV languages, such as Japanese.
+3. English requires the function words "to the" before "shop".
 
-- What kind of corrections to provide:
-  - grammar-only corrections
-  - vocabulary improvements
-  - style suggestions
-  - rewritten versions
-  - diffs
-  - explanations
-  - mistake categories
+At the same time, it's pretty clear what the sentence means, so it can still be corrected. It's just that lumping the three corrections into a single interaction and listing them at once would be confusing. It also wouldn't allow for statistics gathering.
 
-- How corrections are presented:
-  - inline highlights
-  - side-by-side comparison
-  - list of issues
-  - corrected full version
-  - learning-focused explanations
+Instead, I've chosen to split the corrections as follows:
 
-- How to make writing easier:
-  - lightweight vocabulary help
-  - hints
-  - translation assistance
-  - autocomplete
-  - post-writing feedback only
-  - another approach you think is better
+```yaml
+word-order "store-goed -> goed store":
+    conjugation "goed -> went":
+    preposition "store -> to the store":
+```
 
-In your README, explain:
+The user will first see the word order correction, fix it, and only then see the two child corrections for "went" and "to the store".
 
-- What correction approach you chose
-- Why it helps language learning
-- How your UI supports the writing/review flow
-- What you deliberately left out
+### Intended audience
+The app is geared towards beginner/intermediate users of a language, rather than advanced users. The way in which the text is presented doesn't lend itself to writing long articles or making large changes to sentences. This is partly because I've been quite disappointed with such products in the past and rarely use LLMs to write prose.
 
----
+I considered having an option for a user to select their skill level and to tweak the system prompt in various ways depending on that, but I decided this was out of scope.
 
-## Stage 2 — Errors & improvement review (optional)
+### Language support
+The app distinguishes between two languages:
 
-Extend the application to help users understand how their mistakes evolve over time.
+1. The input language that the user is trying to learn. Each journey entry is written in a specific language.
+2. The interface language. This is what the text is presented in.
 
-This stage focuses on turning individual corrections into learning insights.
+A number of input languages are supported, such as German, French, and Korean. There is no RTL support.
 
-Possible directions:
+Only English is supported as an interface language.
 
-- Track and categorize mistakes across entries
-- Identify common or repeated mistakes
-- Show which mistake types are decreasing over time
-- Provide a simple “improvement summary”
-- Highlight patterns in user errors
+### Non-features
 
-You are free to define:
+1. Auto-complete: Writing the user's text for them is counter-productive if they want to learn how to do it themselves.
+2. Hints: I did consider having links to work definitions, grammar rules, and so on. But I decided not to.
+3. Auto-save: You have to click a Save button. it's a pain, but I decided handling it was also a pain.
+4. Mobile support: Decided it was out of scope.
 
-- What a “mistake” is
-- How mistakes are stored
-- How progress is calculated
-- How insights are presented
+## Implementation
 
-This stage does not need to be complex. A simple, well-reasoned implementation is preferred over an ambitious but unclear one.
+### Development process
+A lot of the implementation was generally done using agents. I run several agents in parallel focusing on different parts of the code. I typically store prompts for the agents in `*.prompt.md` files, and I've comitted these as an extra source of documentation and a view into the development process.
 
-If you choose not to implement Stage 2, briefly describe how you would approach it.
+### Editor frontend
+The editor is kind of like a block based editor, but none that I found let me avoid the "reconcile highlights" issue. I ended up using a custom implementation where each paragraph is separate editor and I handle keyboard bindings and events to make them seem connected.
 
----
+This is probably not the most efficient way of doing it, but I really wanted to avoid having to reconcile anything.
 
-## AI integration
+### Data model
+The best way to get a picture of the data model is to look at the examples for the model [here](./backend/src/agent/prompt/examples.py). It's defined [over here](./backend/src/agent/models.py). Another good source is [here](./backend/src/agent/prompt/system_prompt.py).
 
-Use any AI provider or local model you prefer.
+All communication with the model is via pydantic_ai mediated JSON. We send it a payload specifying the language(s) used, the current paragraph being checked, and the surrounding paragraphs for context.
 
-The AI should be used for at least:
+The model responds by quoting the user's response as JSON objects containing spans of the user's text. Valid spans have `type: valid` while mistakes have `type: mistake`, together with the `reason` and a `target` field that tells the app what to correct the user's text to.
 
-1. Analyzing a journal entry
-2. Returning corrections, suggestions, or structured mistake data
+I chose this option because I was skeptical of an LLM's ability to, for example, point at specific bits of text via offsets. I thought I could get better results using a schema that was arranged in the same order as the text, with the user's input adjacent to the mistake.
 
-### Requirements
+It also allows for naturally nesting mistakes when we want to split them up. The `target` field itself can contain more mistake spans. This lets a single wrong phrase be decomposed into several wrong layers.
 
-- The implementation should explain how AI output is parsed, stored, and surfaced to the user
-- The README should describe how to configure the selected AI provider or model
+This works quite well. However, I have encountered some issues. The model doesn't always know how to use nested mistakes properly for example. If there are multiple mistakes, it doesn't always fix them all. A better approach might be just sending the corrected text to the model to construct this nested structure, or to do so once the user has finished fixing all the mistakes.
 
----
+The results are not deterministic, of course. The LLM will highlight the same mistakes somewhat differently. If one letter is off, sometimes it will highlight just that letter, but other times it will highlight the word. There are also edge phrases or sentences that it will only sometimes mark as mistakes.
 
-## Backend requirements
+### Frontend data model
+The frontend has its own version of the data model. It uses a set of classes to manipulate the body of a journal entry, compute decoration ranges, and apply fixes.
 
-Design the backend API and data flow needed to support your product decisions.
-
-The backend should support, at minimum:
-
-- Creating and storing journal entries
-- Sending entries for AI analysis
-- Storing AI feedback
-- Returning previous entries and their feedback
-
-If you implement Stage 2, your backend should also support:
-
-- Storing mistake-related data
-- Aggregating or analyzing mistakes over time
-
-In your README, briefly explain:
-
-- Your API design
-- Your data model
-- How AI analysis is triggered and stored
-- Any important tradeoffs or limitations
-
----
-
-## Persistence
-
-Use a database such as SQLite, Postgres, or another reasonable choice.
-
-Store at minimum:
-
-- Journal entry text
-- Language
-- AI feedback
-- Timestamp
-
-If implementing Stage 2, also store:
-
-- Mistakes or structured correction data
-
----
-
-## Frontend requirements
-
-Build a Single Page Application using any modern frontend framework.
-
-### Required screens (Stage 1)
-
-1. **Writing screen**
-   - Create a journal entry
-   - Submit it for feedback
-   - See AI feedback
-
-2. **Entry history**
-   - View previous entries
-   - Open an entry and review its corrections
-
-### Additional screen (Stage 2, optional)
-
-3. **Progress / insights view**
-   - Show a summary of mistakes or improvements over time
-
-Minimal styling is sufficient, but the UX should be coherent.
-
----
-
-## Testing
-
-Include automated tests for the most important parts of your implementation.
-
-We are especially interested in tests for:
-
-- AI response parsing or defensive handling
-- One main backend flow (create entry → analyze → store → retrieve)
-
-If implementing Stage 2:
-
-- Tests for mistake aggregation or progress logic
-
----
-
-## Running the project locally
-
-The repository must include clear instructions for:
-
-- Installing dependencies
-- Running backend and frontend locally
-- Running the application with the chosen AI provider
-- Running tests
-
-A single command, Docker Compose setup, or small set of commands is preferred.
-
----
-
-## Scope and tradeoffs
-
-You are encouraged to reduce scope where appropriate.
-
-Acceptable simplifications:
-
-- Single user only
-- One target language only
-- Basic UI
-- Minimal correction types
-- No authentication
-- No deployment
-
-Do not spend time on polish at the expense of architecture, correctness, or clarity.
-
----
-
-## Success criteria
-
-We will evaluate:
-
-- Product judgment
-- API and data model design
-- AI integration and handling
-- Quality of the correction and review experience
-- Code clarity and structure
-- Test coverage
-- Thoughtful scoping and README documentation
-
-Stage 2 (if implemented) will be evaluated as a bonus, especially:
-
-- How well mistakes are modeled
-- How meaningful the insights are
-- Simplicity and clarity of the approach
-
-We are not looking for the largest feature set. We are looking for a coherent, well-reasoned product slice.
+In the end the frontend does compute offsets for highlighting purposes.
